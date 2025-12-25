@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Reddy Mikks — Linear Programming (2 variables)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script src="https://cdn.plot.ly/plotly-2.30.0.min.js"></script>
+  <style>
+    body { font: 14px/1.5 Arial, sans-serif; margin: 24px; max-width: 1000px; }
+    h1 { margin-bottom: 6px; }
+    .row { display: flex; gap: 12px; align-items: center; margin: 8px 0; flex-wrap: wrap; }
+    input { width: 90px; padding: 6px; }
+    button { padding: 6px 12px; }
+    #plot { width: 900px; height: 520px; margin-top: 12px; }
+    .msg { margin-top: 10px; font-weight: 600; }
+    .card { border: 1px solid #ddd; border-radius: 8px; padding: 12px; margin-top: 14px; }
+  </style>
+</head>
+<body>
+  <h1>Reddy Mikks — Linear Programming (Graphical method)</h1>
+  <p>Set the objective and constraints. Add/remove demand constraints. Solve and plot the feasible region and optimal point.</p>
+
+  <div class="card">
+    <h2>Objective</h2>
+    <div class="row">
+      <label>a: <input id="objA" type="number" step="any" value="5"></label>
+      <label>b: <input id="objB" type="number" step="any" value="4"></label>
+      <span>Max Z = a·x1 + b·x2</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Resource constraints (≤)</h2>
+    <div class="row">
+      <label>M1 a: <input id="m1a" type="number" step="any" value="6"></label>
+      <label>M1 b: <input id="m1b" type="number" step="any" value="4"></label>
+      <label>M1 c: <input id="m1c" type="number" step="any" value="24"></label>
+    </div>
+    <div class="row">
+      <label>M2 a: <input id="m2a" type="number" step="any" value="1"></label>
+      <label>M2 b: <input id="m2b" type="number" step="any" value="2"></label>
+      <label>M2 c: <input id="m2c" type="number" step="any" value="6"></label>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Demand constraints (≤)</h2>
+    <div id="demandList"></div>
+    <div class="row">
+      <button id="addDemand">Add demand constraint</button>
+      <button id="preset">Load Reddy Mikks preset</button>
+      <button id="solve">Solve & Plot</button>
+    </div>
+    <div id="result" class="msg"></div>
+  </div>
+
+  <div id="plot"></div>
+
+  <script>
+    const demandList = document.getElementById('demandList');
+    const addDemandBtn = document.getElementById('addDemand');
+    const presetBtn = document.getElementById('preset');
+    const solveBtn = document.getElementById('solve');
+    const resultEl = document.getElementById('result');
+
+    addDemandBtn.onclick = () => addDemandRow();
+    presetBtn.onclick = () => {
+      demandList.innerHTML = '';
+      addDemandRow(-1, 1, 1); // x2 - x1 ≤ 1
+      addDemandRow(0, 1, 2);  // x2 ≤ 2
+    };
+
+    function addDemandRow(a=0, b=0, c=0) {
+      const div = document.createElement('div');
+      div.className = 'row';
+      div.innerHTML = `
+        <label>a: <input type="number" step="any" value="${a}"></label>
+        <label>b: <input type="number" step="any" value="${b}"></label>
+        <label>c: <input type="number" step="any" value="${c}"></label>
+        <button type="button">Remove</button>
+      `;
+      div.querySelector('button').onclick = () => div.remove();
+      demandList.appendChild(div);
+    }
+
+    const eps = 1e-9;
+
+    function intersect(a1,b1,c1,a2,b2,c2) {
+      const det = a1*b2 - a2*b1;
+      if (Math.abs(det) < eps) return null;
+      const x1 = (c1*b2 - c2*b1) / det;
+      const x2 = (a1*c2 - a2*c1) / det;
+      return { x1, x2 };
+    }
+
+    function feasible(pt, cons) {
+      if (!pt) return false;
+      if (pt.x1 < -eps || pt.x2 < -eps) return false;
+      for (const [a,b,c] of cons) {
+        if (a*pt.x1 + b*pt.x2 - c > eps) return false;
+      }
+      return true;
+    }
+
+    function solve() {
+      const aObj = parseFloat(document.getElementById('objA').value);
+      const bObj = parseFloat(document.getElementById('objB').value);
+
+      // Collect constraints
+      const cons = [
+        [parseFloat(document.getElementById('m1a').value), parseFloat(document.getElementById('m1b').value), parseFloat(document.getElementById('m1c').value)],
+        [parseFloat(document.getElementById('m2a').value), parseFloat(document.getElementById('m2b').value), parseFloat(document.getElementById('m2c').value)],
+      ];
+      for (const row of demandList.children) {
+        const inputs = row.querySelectorAll('input');
+        cons.push([parseFloat(inputs[0].value), parseFloat(inputs[1].value), parseFloat(inputs[2].value)]);
+      }
+
+      // Lines (constraints + axes)
+      const lines = cons.map(([a,b,c]) => ({a,b,c}));
+      lines.push({a:1, b:0, c:0}); // x1 = 0
+      lines.push({a:0, b:1, c:0}); // x2 = 0
+
+      // Candidates: all intersections + intercepts
+      let candidates = [];
+      for (let i=0;i<lines.length;i++) {
+        for (let j=i+1;j<lines.length;j++) {
+          const p = intersect(lines[i].a, lines[i].b, lines[i].c, lines[j].a, lines[j].b, lines[j].c);
+          if (p) candidates.push(p);
+        }
+      }
+      for (const {a,b,c} of lines) {
+        if (Math.abs(a) > eps) candidates.push({ x1: c/a, x2: 0 });
+        if (Math.abs(b) > eps) candidates.push({ x1: 0, x2: c/b });
+      }
+      // Dedup
+      const uniq = [];
+      for (const p of candidates) {
+        if (!p) continue;
+        if (!uniq.some(q => Math.hypot(p.x1 - q.x1, p.x2 - q.x2) < 1e-6)) uniq.push(p);
+      }
+
+      const feas = uniq.filter(p => feasible(p, cons));
+      if (feas.length === 0) {
+        resultEl.textContent = 'No feasible solution under current constraints.';
+        Plotly.newPlot('plot', [], {xaxis:{title:'x1'}, yaxis:{title:'x2'}});
+        return;
+      }
+
+      // Pick best by objective
+      let best = null, bestZ = -Infinity;
+      for (const p of feas) {
+        const Z = aObj*p.x1 + bObj*p.x2;
+        if (Z > bestZ) { bestZ = Z; best = p; }
+      }
+
+      // Plot ranges
+      const xs = feas.map(p => p.x1), ys = feas.map(p => p.x2);
+      const xMax = Math.max(1, ...xs) * 1.2, yMax = Math.max(1, ...ys) * 1.2;
+
+      // Build constraint line traces
+      const traces = [];
+      for (const [a,b,c] of cons) {
+        const x = [], y = [];
+        for (let i=0;i<=100;i++) {
+          const xv = i/100 * xMax;
+          const yv = Math.abs(b) < eps ? NaN : (c - a*xv)/b;
+          x.push(xv); y.push(yv);
+        }
+        traces.push({ x, y, mode:'lines', name:`${a}·x1 + ${b}·x2 = ${c}`, line:{width:1} });
+      }
+
+      // Feasible vertices
+      traces.push({ x: xs, y: ys, mode:'markers', name:'Feasible vertices', marker:{size:6, color:'#888'} });
+
+      // Optimal
+      traces.push({
+        x: [best.x1], y: [best.x2], mode:'markers+text', name:'Optimal',
+        marker:{size:10, color:'red'},
+        text:[`(${best.x1.toFixed(3)}, ${best.x2.toFixed(3)})`],
+        textposition:'top center'
+      });
+
+      Plotly.newPlot('plot', traces, {
+        xaxis: { title: 'x1', range: [0, xMax] },
+        yaxis: { title: 'x2', range: [0, yMax] },
+        showlegend: true
+      });
+
+      resultEl.textContent = `Optimal: x1 = ${best.x1.toFixed(3)}, x2 = ${best.x2.toFixed(3)}, Max Z = ${(aObj*best.x1 + bObj*best.x2).toFixed(3)}`;
+    }
+
+    solveBtn.onclick = solve;
+    // Load preset by default
+    presetBtn.click();
+  </script>
+</body>
+</html>
